@@ -3,6 +3,7 @@ package chaincode
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
@@ -15,17 +16,19 @@ type TransferRecord struct {
 
 type Asset struct {
 	// 图片id，hash值，拥有者，
-	AssetID         string           `json:"AssetID"`
-	Hash            string           `json:"Hash"`
-	Owner           string           `json:"Owner"`
-	CurrentHolder   []string         `json:"CurrentHolder"`
-	TransferRecords []TransferRecord `json:"TransferRecords"`
+	AssetID          string           `json:"AssetID"`
+	Hash             string           `json:"Hash"`
+	ImageFingerprint string           `json: "ImageFingerprint"`
+	Owner            string           `json:"Owner"`
+	CurrentHolder    []string         `json:"CurrentHolder"`
+	TransferRecords  []TransferRecord `json:"TransferRecords"`
 }
 
 type SmartContract struct {
 	contractapi.Contract
 }
 
+/*
 func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
 	transfer_records := []TransferRecord{
 		{From: "Alice", To: "Bob", Returned: false},
@@ -33,8 +36,8 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 	}
 
 	assets := []Asset{
-		{AssetID: "1", Hash: "319010xxxx", Owner: "Alice", CurrentHolder: []string{"Alice", "Bob"}, TransferRecords: transfer_records},
-		{AssetID: "5", Hash: "319010xxxx", Owner: "Bob", CurrentHolder: []string{"Alice", "Bob"}, TransferRecords: transfer_records},
+		{AssetID: "1", Hash: "319010xxxx", Owner: "Alice", ImageFingerprint: "13", CurrentHolder: []string{"Alice", "Bob"}, TransferRecords: transfer_records},
+		{AssetID: "5", Hash: "319010xxxx", Owner: "Bob", ImageFingerprint: "123", CurrentHolder: []string{"Alice", "Bob"}, TransferRecords: transfer_records},
 	}
 
 	for _, asset := range assets {
@@ -52,7 +55,7 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 	return nil
 }
 
-func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface, imageId string, hash string, owner string) error {
+func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface, imageId string, hash string, imageFingerprint string, owner string) error {
 	exists, err := s.AssetExists(ctx, imageId)
 	if err != nil {
 		return err
@@ -213,4 +216,204 @@ func stringInArray(targetStr string, stringArray []string) bool {
 		}
 	}
 	return false
+}
+
+*/
+
+type PrivateAssetDetails struct {
+	ImageID    string `json:"imageID"`
+	Content    []byte `json:"content"`
+	UploadTime string `json:"uploadTime"`
+}
+
+type PublicAssetDetails struct {
+	Pid        string `json:"pid"`
+	Content    []byte `json:"content"`
+	UploadTime string `json:"uploadTime"`
+}
+
+type TransactionDetails struct {
+	TxnID string `json:"txnID"`
+	Pid   string `json:"pid"`
+	To    string `json:"to"`
+	Hash  string `json:"hash"`
+}
+
+func (s *SmartContract) CommitTransaction(ctx contractapi.TransactionContextInterface, pid string, to string, hash string) error {
+	transactions, err := s.GetTransactionDataByRange(ctx, "txn", "txp")
+	if err != nil {
+		return fmt.Errorf("CommitTransaction cannot be performed: Error %v", err)
+	}
+	txn_id := strconv.Itoa(len(transactions))
+	transaction := TransactionDetails{
+		TxnID: "txn" + txn_id,
+		Pid:   pid,
+		To:    to,
+		Hash:  hash,
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal asset into JSON: %v", err)
+	}
+
+	JSONBytes, err := json.Marshal(transaction)
+	if err != nil {
+		return fmt.Errorf("failed to marshal asset into JSON: %v", err)
+	}
+	err = ctx.GetStub().PutState("txn"+txn_id, JSONBytes)
+	if err != nil {
+		return fmt.Errorf("failed to put transaction details: %v", err)
+	}
+
+	return nil
+}
+
+func (s *SmartContract) SetPrivateData(ctx contractapi.TransactionContextInterface, fileBytes []byte, orgCollectionName string, id string, uploadTime string) error {
+
+	privateAsset := PrivateAssetDetails{
+		ImageID:    id,
+		Content:    fileBytes,
+		UploadTime: uploadTime,
+	}
+	JSONBytes, err := json.Marshal(privateAsset)
+
+	// orgCollectionName := "Org1"
+	// Save asset details to collection visible to owning organization
+	if err != nil {
+		return fmt.Errorf("failed to marshal asset into JSON: %v", err)
+	}
+	// TODO 什么时候处理id++
+	err = ctx.GetStub().PutPrivateData(orgCollectionName, id, JSONBytes)
+	if err != nil {
+		return fmt.Errorf("failed to put asset private details: %v", err)
+	}
+
+	return nil
+}
+
+func (s *SmartContract) GetPrivateDataByRange(ctx contractapi.TransactionContextInterface, privateCollectionName string, start string, end string) ([]*PrivateAssetDetails, error) {
+	resultsIterator, err := ctx.GetStub().GetPrivateDataByRange(privateCollectionName, start, end)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer resultsIterator.Close()
+	var privateAssets []*PrivateAssetDetails
+	for resultsIterator.HasNext() {
+		queryResponse, err := resultsIterator.Next()
+		if err != nil {
+			return nil, err
+		}
+
+		var privateAsset PrivateAssetDetails
+		err = json.Unmarshal(queryResponse.Value, &privateAsset)
+		if err != nil {
+			return nil, err
+		}
+		privateAssets = append(privateAssets, &privateAsset)
+	}
+
+	return privateAssets, nil
+}
+
+func (s *SmartContract) GetID(ctx contractapi.TransactionContextInterface, privateCollectionName string) (string, error) {
+	allPrivateData, err := s.GetPrivateDataByRange(ctx, privateCollectionName, "", "")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal asset into JSON: %v", err)
+	}
+
+	return strconv.Itoa(len(allPrivateData)), nil
+}
+
+func (s *SmartContract) SetPublicData(ctx contractapi.TransactionContextInterface, pid string, fileBytes []byte, uploadTime string) error {
+
+	publicAsset := PublicAssetDetails{
+		Pid:        pid,
+		Content:    fileBytes,
+		UploadTime: uploadTime,
+	}
+	publicAssetJSON, err := json.Marshal(publicAsset)
+	if err != nil {
+		return fmt.Errorf("failed to marshal asset into JSON: %v", err)
+	}
+
+	err = ctx.GetStub().PutState(pid, publicAssetJSON)
+	if err != nil {
+		return fmt.Errorf("SetPublicImage cannot be performed: Error %v", err)
+	}
+
+	return nil
+}
+
+func (s *SmartContract) DeletePrivateData(ctx contractapi.TransactionContextInterface, privateCollectionName string, id string) error {
+
+	err := ctx.GetStub().DelPrivateData(privateCollectionName, id)
+	if err != nil {
+		return fmt.Errorf("DeletePrivateData cannot be performed: Error %v", err)
+	}
+
+	return nil
+}
+
+func (s *SmartContract) DeletePublicData(ctx contractapi.TransactionContextInterface, pid string) error {
+
+	err := ctx.GetStub().DelState(pid)
+	if err != nil {
+		return fmt.Errorf("DeletePublicData cannot be performed: Error %v", err)
+	}
+	return nil
+}
+
+func (s *SmartContract) GetPublicDataByRange(ctx contractapi.TransactionContextInterface, start string, end string) ([]*PublicAssetDetails, error) {
+
+	resultsIterator, err := ctx.GetStub().GetStateByRange(start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer resultsIterator.Close()
+
+	var publicAssets []*PublicAssetDetails
+	for resultsIterator.HasNext() {
+		queryResponse, err := resultsIterator.Next()
+		if err != nil {
+			return nil, err
+		}
+
+		var publicAsset PublicAssetDetails
+		err = json.Unmarshal(queryResponse.Value, &publicAsset)
+		if err != nil {
+			return nil, err
+		}
+		publicAssets = append(publicAssets, &publicAsset)
+	}
+
+	return publicAssets, nil
+}
+
+func (s *SmartContract) GetTransactionDataByRange(ctx contractapi.TransactionContextInterface, start string, end string) ([]*TransactionDetails, error) {
+	// 应当以txn开头
+
+	resultsIterator, err := ctx.GetStub().GetStateByRange(start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer resultsIterator.Close()
+
+	var transactions []*TransactionDetails
+	for resultsIterator.HasNext() {
+		queryResponse, err := resultsIterator.Next()
+		if err != nil {
+			return nil, err
+		}
+
+		var transaction TransactionDetails
+		err = json.Unmarshal(queryResponse.Value, &transaction)
+		if err != nil {
+			return nil, err
+		}
+		transactions = append(transactions, &transaction)
+	}
+
+	return transactions, nil
 }

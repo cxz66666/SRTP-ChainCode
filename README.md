@@ -1,29 +1,44 @@
 # SRTP-ChainCode
 ZJU SRTP ChainCode
 
-### 结构体定义
+### 数据结构
 ```
-type TransferRecord struct {
-	From     string `json:"From"`
-	To       string `json:"To"`
-	Returned bool   `json:"Returned"`
+type PrivateAssetDetails struct {
+	ImageID    string `json:"imageID"`
+	Content    []byte `json:"content"`
+	UploadTime string `json:"uploadTime"`
 }
 
-type Asset struct {
-	// 图片id，hash值，拥有者，当前可用者，交换记录
-	AssetID         string           `json:"AssetID"`
-	Hash            string           `json:"Hash"`
-	Owner           string           `json:"Owner"`
-	CurrentHolder   []string         `json:"CurrentHolder"`
-	TransferRecords []TransferRecord `json:"TransferRecords"`
+type PublicAssetDetails struct {
+	Pid        string `json:"pid"`
+	Content    []byte `json:"content"`
+	UploadTime string `json:"uploadTime"`
+}
+type TransactionDetails struct {
+	TxnID string `json:"txnID"`
+	Pid   string `json:"pid"`
+	To    string `json:"to"`
+	Hash  string `json:"hash"`
 }
 ```
 
-### 当前实现了以下函数
-+ InitLedger 
-+ CreateAsset(imageId, hash, owner)
-+ ReadAsset(imageId)
-+ TransferAsset(imageId, from, to)
-+ ReturnAsset(imageId, from, to)
-+ DeleteAsset(imageId)
-+ GetAllAssets()
+
+### APIs
++ GetID(ctx contractapi.TransactionContextInterface, privateCollectionName string) (string, error)
+  + 获取当前private collection有多少数据
+
++ SetPrivateData(ctx contractapi.TransactionContextInterface, fileBytes []byte, orgCollectionName string, id string, uploadTime string) error
+  + 将数据存入私有数据库中
+
++ SetPublicData(ctx contractapi.TransactionContextInterface, pid string, fileBytes []byte, uploadTime string) error
+  + 将数据存入公有数据库中
+
++ DeletePrivateData(ctx contractapi.TransactionContextInterface, privateCollectionName string, id string) error
+  + 删除私有数据
+
+
++ DeletePublicData(ctx contractapi.TransactionContextInterface, pid string) error
+  + 删除公有数据
+
++ CommitTransaction(ctx contractapi.TransactionContextInterface, pid string, to string, hash string)
+  + 提交交易
